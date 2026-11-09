@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+  <Id>36510d75-1732-4e76-bf9b-405b2a225436</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Papak Productions</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="ActOne Task Details"/>
+  <Description DefaultValue="Side panel that shows and edits the selected Master Sheet row."/>
+  <IconUrl DefaultValue="https://alliethatgurl.github.io/actone-task-details/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://alliethatgurl.github.io/actone-task-details/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://alliethatgurl.github.io/actone-task-details/"/>
+  <AppDomains><AppDomain>https://alliethatgurl.github.io/actone-task-details</AppDomain></AppDomains>
+  <Hosts><Host Name="Workbook"/></Hosts>
+  <Requirements><Sets DefaultMinVersion="1.7"><Set Name="ExcelApi" MinVersion="1.7"/></Sets></Requirements>
+  <DefaultSettings><SourceLocation DefaultValue="https://alliethatgurl.github.io/actone-task-details/taskpane.html"/></DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Workbook">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="T.Title"/>
+            <Description resid="T.Desc"/>
+            <LearnMoreUrl resid="U.Pane"/>
+          </GetStarted>
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="ActOne.Group">
+                <Label resid="T.Group"/>
+                <Icon><bt:Image size="16" resid="I.16"/><bt:Image size="32" resid="I.32"/><bt:Image size="80" resid="I.80"/></Icon>
+                <Control xsi:type="Button" id="ActOne.TaskDetails">
+                  <Label resid="T.Title"/>
+                  <Supertip><Title resid="T.Title"/><Description resid="T.Desc"/></Supertip>
+                  <Icon><bt:Image size="16" resid="I.16"/><bt:Image size="32" resid="I.32"/><bt:Image size="80" resid="I.80"/></Icon>
+                  <Action xsi:type="ShowTaskpane"><TaskpaneId>ActOneTaskDetails</TaskpaneId><SourceLocation resid="U.Pane"/></Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+    <Resources>
+      <bt:Images>
+        <bt:Image id="I.16" DefaultValue="https://alliethatgurl.github.io/actone-task-details/assets/icon-16.png"/>
+        <bt:Image id="I.32" DefaultValue="https://alliethatgurl.github.io/actone-task-details/assets/icon-32.png"/>
+        <bt:Image id="I.80" DefaultValue="https://alliethatgurl.github.io/actone-task-details/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls><bt:Url id="U.Pane" DefaultValue="https://alliethatgurl.github.io/actone-task-details/taskpane.html"/></bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="T.Title" DefaultValue="Task Details"/>
+        <bt:String id="T.Group" DefaultValue="ActOne"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="T.Desc" DefaultValue="Show and edit the selected Master Sheet row in a side panel."/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task Details</title>
+<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+<style>
+  :root{--bg:#f3f5f8;--card:#fff;--ink:#1f2328;--muted:#5f6b76;--line:#d7dde3;--accent:#e87722;--accent-ink:#fff;--ok:#1a7f37;--warn:#9a6700;--err:#cf222e;--soft:#eef1f4}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.4 "Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{padding:14px}
+  .card{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  h1{font-size:22px;margin:0}
+  .sub{color:var(--muted);margin:2px 0 12px}
+  .row{display:flex;gap:6px;margin-bottom:10px}
+  button{font:inherit;border:0;border-radius:10px;padding:10px 12px;cursor:pointer;background:var(--soft);color:var(--ink);font-weight:600}
+  button.primary{background:var(--accent);color:var(--accent-ink)}
+  button:disabled{opacity:.5;cursor:default}
+  .grow{flex:1}
+  .search{display:flex;gap:6px;margin-bottom:12px}
+  .search input{flex:1}
+  label{display:block;font-weight:600;margin:12px 0 4px}
+  input,select,textarea{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink)}
+  textarea{min-height:64px;resize:vertical}
+  input.changed,select.changed,textarea.changed{border-color:var(--accent);box-shadow:0 0 0 2px rgba(232,119,34,.18)}
+  .link{display:flex;gap:6px}
+  .link a{align-self:center;white-space:nowrap;color:var(--accent);font-weight:600;text-decoration:none}
+  .status{position:sticky;bottom:0;margin-top:14px;padding:10px 12px;border-radius:10px;background:var(--soft);color:var(--muted);min-height:20px}
+  .status.ok{color:var(--ok)} .status.err{color:var(--err)} .status.warn{color:var(--warn)}
+  .toggle{display:flex;align-items:center;gap:8px;color:var(--muted);margin:6px 0 2px;font-weight:400}
+  .toggle input{width:auto}
+  .savebar{position:sticky;bottom:52px;display:flex;gap:6px;margin-top:16px}
+  .empty{color:var(--muted);padding:18px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Task Details</h1>
+    <div class="sub" id="where">Master Sheet</div>
+
+    <div class="row">
+      <button class="primary grow" id="load">Load selected row</button>
+    </div>
+    <div class="row">
+      <button class="grow" id="prev">&#9650; Prev</button>
+      <button class="grow" id="next">Next &#9660;</button>
+    </div>
+    <div class="search">
+      <input id="find" placeholder="Find Design ID, e.g. D260358" autocomplete="off">
+      <button id="go">Find</button>
+    </div>
+    <label class="toggle"><input type="checkbox" id="follow" checked> Follow my selection</label>
+    <label class="toggle"><input type="checkbox" id="stamp" checked> Set Last Updated to today when saving</label>
+
+    <div id="form"><div class="empty">Click a row in the Master Sheet, then “Load selected row”.</div></div>
+
+    <div class="savebar">
+      <button class="primary grow" id="save" disabled>Save changes</button>
+      <button id="revert" disabled>Revert</button>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+</div>
+
+<script>
+/* ActOne Task Details – Excel task pane for the "Master Sheet" tab.
+   Reads the header row every time, so moved/renamed columns are handled. */
+const SHEET = "Master Sheet";
+const LONG = /description|action needed|notes?|details|basis/i;
+const LINK = /link|url|sharepoint|bynder|dam|website/i;
+const STATUS_OPTIONS = ["Approved/Current","Needs Review","Needs Update","Replace","Archive","Missing/Needed"];
+
+let headers = [], lastCol = 0, rowNum = null, original = [], fields = [], following = true, busy = false;
+const $ = id => document.getElementById(id);
+const status = (msg, cls="") => { const s=$("status"); s.textContent=msg; s.className="status "+cls; };
+const colLetter = n => { let s=""; n++; while(n){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26);} return s; };
+const today = () => { const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); };
+const serialToDate = v => { if (typeof v!=="number" || v<20000 || v>80000) return v; const d=new Date(Date.UTC(1899,11,30)+v*864e5); return d.toISOString().slice(0,10); };
+
+async function readHeaders(ctx){
+  const ws = ctx.workbook.worksheets.getItem(SHEET);
+  const used = ws.getUsedRange(true); used.load("columnCount,rowCount"); await ctx.sync();
+  const hdr = ws.getRangeByIndexes(0,0,1,used.columnCount); hdr.load("values"); await ctx.sync();
+  headers = hdr.values[0].map(h => String(h||"").trim());
+  while (headers.length && !headers[headers.length-1]) headers.pop();
+  lastCol = headers.length;
+  return { ws, rowCount: used.rowCount };
+}
+
+async function loadRow(n){
+  if (busy) return; busy = true;
+  try{
+    await Excel.run(async ctx => {
+      const { ws, rowCount } = await readHeaders(ctx);
+      if (n < 2) { status("Row 1 is the header row – pick a data row.","warn"); return; }
+      if (n > rowCount) { status("Row "+n+" is past the last row ("+rowCount+").","warn"); return; }
+      const r = ws.getRangeByIndexes(n-1,0,1,lastCol); r.load("values,text"); await ctx.sync();
+      rowNum = n;
+      original = r.values[0].map((v,i)=> headers[i] && /last updated|date/i.test(headers[i]) ? String(serialToDate(v)) : (v===null?"":String(v)));
+      render();
+      status("Loaded row "+n+".","ok");
+    });
+  }catch(e){ status("Could not load: "+e.message,"err"); }
+  finally{ busy = false; }
+}
+
+function render(){
+  $("where").textContent = SHEET + " • Row " + rowNum;
+  const f = $("form"); f.innerHTML = ""; fields = [];
+  headers.forEach((h,i)=>{
+    if (!h) return;
+    const lab = document.createElement("label"); lab.textContent = h; lab.htmlFor = "f"+i;
+    let el;
+    if (/^status$/i.test(h)) {
+      el = document.createElement("select");
+      const opts = STATUS_OPTIONS.includes(original[i]) || !original[i] ? STATUS_OPTIONS : [original[i], ...STATUS_OPTIONS];
+      ["", ...opts].forEach(o=>{ const op=document.createElement("option"); op.value=o; op.textContent=o||"—"; el.appendChild(op); });
+    } else if (LONG.test(h)) {
+      el = document.createElement("textarea");
+    } else {
+      el = document.createElement("input"); el.type = "text";
+    }
+    el.id = "f"+i; el.value = original[i]; el.dataset.idx = i;
+    el.addEventListener("input", onEdit); el.addEventListener("change", onEdit);
+    f.appendChild(lab);
+    if (LINK.test(h)) {
+      const w = document.createElement("div"); w.className="link"; w.appendChild(el);
+      const a = document.createElement("a"); a.textContent="Open"; a.target="_blank"; a.rel="noopener";
+      const upd = ()=>{ a.href = el.value; a.style.visibility = /^https?:\/\//.test(el.value) ? "visible" : "hidden"; };
+      el.addEventListener("input", upd); upd(); w.appendChild(a); f.appendChild(w);
+    } else f.appendChild(el);
+    fields.push(el);
+  });
+  onEdit();
+}
+
+function changedIdx(){ return fields.filter(el => el.value !== original[el.dataset.idx]).map(el => +el.dataset.idx); }
+function onEdit(){
+  fields.forEach(el => el.classList.toggle("changed", el.value !== original[el.dataset.idx]));
+  const n = changedIdx().length;
+  $("save").disabled = !n; $("revert").disabled = !n;
+  if (n) status(n+" unsaved change"+(n>1?"s":"")+".","warn");
+}
+
+async function save(){
+  const idx = changedIdx(); if (!idx.length || rowNum===null) return;
+  try{
+    await Excel.run(async ctx => {
+      const { ws } = await readHeaders(ctx);
+      // Re-read the row first so we never overwrite something edited elsewhere since loading.
+      const r = ws.getRangeByIndexes(rowNum-1,0,1,lastCol); r.load("values"); await ctx.sync();
+      const live = r.values[0];
+      const conflicts = idx.filter(i => { const lv = /last updated|date/i.test(headers[i]) ? String(serialToDate(live[i])) : (live[i]===null?"":String(live[i])); return lv !== original[i]; });
+      if (conflicts.length) { status("Someone changed "+conflicts.map(i=>headers[i]).join(", ")+" since you loaded this row. Reload before saving.","err"); return; }
+      for (const i of idx) ws.getRangeByIndexes(rowNum-1,i,1,1).values = [[fields.find(el=>+el.dataset.idx===i).value]];
+      const lu = headers.findIndex(h => /^last updated$/i.test(h));
+      if ($("stamp").checked && lu>=0 && !idx.includes(lu)) ws.getRangeByIndexes(rowNum-1,lu,1,1).values = [[today()]];
+      await ctx.sync();
+    });
+    const n = idx.length;
+    await loadRow(rowNum);
+    status("Saved "+n+" change"+(n>1?"s":"")+" to row "+rowNum+".","ok");
+  }catch(e){ status("Save failed: "+e.message,"err"); }
+}
+
+async function loadSelected(){
+  try{
+    await Excel.run(async ctx => {
+      const sel = ctx.workbook.getSelectedRange(); sel.load("rowIndex,worksheet/name"); await ctx.sync();
+      if (sel.worksheet.name !== SHEET) { status("Select a row on the “"+SHEET+"” tab.","warn"); return; }
+      rowNum = sel.rowIndex + 1;
+    });
+    if (rowNum) await loadRow(rowNum);
+  }catch(e){ status("Could not read selection: "+e.message,"err"); }
+}
+
+async function findId(){
+  const q = $("find").value.trim().toUpperCase(); if (!q) return;
+  try{
+    let hit = null;
+    await Excel.run(async ctx => {
+      const { ws, rowCount } = await readHeaders(ctx);
+      const c = headers.findIndex(h => /^design id$/i.test(h));
+      if (c < 0) { status("No “Design ID” column found.","err"); return; }
+      const col = ws.getRangeByIndexes(1,c,rowCount-1,1); col.load("values"); await ctx.sync();
+      const num = +q.replace(/\D/g,"");
+      col.values.forEach((v,i)=>{
+        if (hit) return; const s = String(v[0]||"").toUpperCase();
+        if (s.includes(q)) { hit = i+2; return; }
+        for (const m of s.matchAll(/D(\d{6})\s*[-–]\s*D?(\d{6})/g)) if (num>=+m[1] && num<=+m[2]) { hit = i+2; return; }
+      });
+      if (hit) { ws.getRangeByIndexes(hit-1,0,1,1).select(); await ctx.sync(); }
+    });
+    if (hit) await loadRow(hit); else status(q+" isn’t on the Master Sheet.","warn");
+  }catch(e){ status("Search failed: "+e.message,"err"); }
+}
+
+async function step(d){
+  if (rowNum===null) return loadSelected();
+  if (changedIdx().length && !confirmLeave()) return;
+  const n = Math.max(2, rowNum + d);
+  try{ await Excel.run(async ctx => { ctx.workbook.worksheets.getItem(SHEET).getRangeByIndexes(n-1,0,1,1).select(); await ctx.sync(); }); }catch(e){}
+  await loadRow(n);
+}
+function confirmLeave(){ status("You have unsaved changes – save or revert first.","warn"); return false; }
+
+Office.onReady(async info => {
+  if (info.host !== Office.HostType.Excel) { status("Open this in Excel.","err"); return; }
+  $("load").onclick = () => changedIdx().length ? confirmLeave() : loadSelected();
+  $("prev").onclick = () => step(-1);
+  $("next").onclick = () => step(1);
+  $("go").onclick = findId;
+  $("find").addEventListener("keydown", e => { if (e.key==="Enter") findId(); });
+  $("save").onclick = save;
+  $("revert").onclick = () => { fields.forEach(el => el.value = original[el.dataset.idx]); onEdit(); status("Changes reverted."); };
+  $("follow").onchange = e => following = e.target.checked;
+  try{
+    await Excel.run(async ctx => {
+      const ws = ctx.workbook.worksheets.getItem(SHEET);
+      ws.onSelectionChanged.add(async () => { if (following && !changedIdx().length && !busy) await loadSelected(); });
+      await ctx.sync();
+    });
+  }catch(e){ status("Couldn’t find the “"+SHEET+"” tab in this workbook.","err"); return; }
+  loadSelected();
+});
+</script>
+</body>
+</html>
